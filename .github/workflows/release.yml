@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (e.g., v0.0.2)'
+        description: 'Release version (e.g., v1.0.0)'
         required: true
 
 jobs:
@@ -16,7 +16,7 @@ jobs:
       version: ${{ steps.setvars.outputs.version }}
       short_version: ${{ steps.setvars.outputs.short_version }}
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
@@ -31,21 +31,76 @@ jobs:
         id: setvars
         run: |
           VERSION="${{ github.event.inputs.version }}"
-          SHORT_VER="${VERSION#v}"
+          SHORT_VER="${VERSION#v}"  # 移除 'v' 前缀
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "short_version=${SHORT_VER}" >> $GITHUB_OUTPUT
 
-      - name: Tag version
+      - name: Create and push tag
         run: |
           TAG="${{ steps.setvars.outputs.version }}"
-          
-          # 检查标签是否已存在
-          if git tag -l | grep -q "$TAG"; then
-            echo "Tag $TAG already exists. Deleting local tag..."
+          # 清理已有标签（避免冲突）
+          if git tag -l "$TAG"; then
+            echo "Deleting existing tag: $TAG"
             git tag -d "$TAG"
             git push origin --delete "$TAG" || echo "Remote tag deletion failed, continuing..."
           fi
-          
           # 创建并推送新标签
           git tag -a "$TAG" -m "Release $TAG"
           git push origin "$TAG"
+
+  build-binaries:
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        goos: [linux, darwin, windows]
+        goarch: [amd64, arm64]
+    steps:
+      - name: Checkout tagged code
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ needs.prepare.outputs.version }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Build binary
+        run: |
+          output="pver"
+          [ "${{ matrix.goos }}" = "windows" ] && output+=".exe"
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o "$output" main.go
+          
+          # 验证编译结果
+          if [ ! -f "$output" ]; then
+            echo "Error: Binary $output not generated!"
+            exit 1
+          fi
+
+      - name: Package binary
+        id: package
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          pkg_name="pver_${{ matrix.goos }}_${{ matrix.goarch }}_${VERSION}"
+          
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            zip "${pkg_name}.zip" pver.exe
+            echo "package_file=${pkg_name}.zip" >> $GITHUB_OUTPUT
+          else
+            tar czf "${pkg_name}.tar.gz" pver
+            echo "package_file=${pkg_name}.tar.gz" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload binary to Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.prepare.outputs.version }}
+          files: ${{ steps.package.outputs.package_file }}
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
