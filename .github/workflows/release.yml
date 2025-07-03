@@ -13,7 +13,6 @@ jobs:
     outputs:
       version: ${{ steps.setvars.outputs.version }}
       short_version: ${{ steps.setvars.outputs.short_version }}
-      sha256: ${{ steps.sha.outputs.sha256 }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -27,36 +26,6 @@ jobs:
           SHORT_VER="${VERSION#v}"
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "short_version=${SHORT_VER}" >> $GITHUB_OUTPUT
-
-      - name: Package source and compute SHA256
-        id: sha
-        run: |
-          SHORT_VER="${{ steps.setvars.outputs.short_version }}"
-
-          mkdir -p pver-${SHORT_VER}
-          rsync -a --exclude "pver-${SHORT_VER}" ./ pver-${SHORT_VER}/
-          tar czf pver-${SHORT_VER}.tar.gz pver-${SHORT_VER}
-
-          SHA=$(sha256sum pver-${SHORT_VER}.tar.gz | awk '{print $1}')
-          echo "sha256=$SHA" >> $GITHUB_OUTPUT
-
-          echo "✅ Source tarball created: pver-${SHORT_VER}.tar.gz"
-          echo "✅ SHA256: $SHA"
-
-      - name: Update PKGBUILD
-        run: |
-          SHORT_VER="${{ steps.setvars.outputs.short_version }}"
-          SHA256="${{ steps.sha.outputs.sha256 }}"
-          sed -i "s/^pkgver=.*/pkgver=${SHORT_VER}/" pkgbuild/PKGBUILD
-          sed -i "s/^sha256sums=(.*/sha256sums=('${SHA256}')/" pkgbuild/PKGBUILD
-
-      - name: Commit updated PKGBUILD
-        run: |
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
-          git add pkgbuild/PKGBUILD
-          git commit -m "Update PKGBUILD for release ${{ steps.setvars.outputs.version }}" || echo "No changes"
-          git push
 
       - name: Tag version
         run: |
@@ -105,17 +74,8 @@ jobs:
         with:
           files: ${{ steps.archive.outputs.archive_file }}
           tag_name: ${{ needs.prepare.outputs.version }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  upload-source:
-    needs: prepare
-    runs-on: ubuntu-latest
-    steps:
-      - name: Upload source tarball
-        uses: softprops/action-gh-release@v1
-        with:
-          files: pver-${{ needs.prepare.outputs.short_version }}.tar.gz
-          tag_name: ${{ needs.prepare.outputs.version }}
+          body: |
+            ⚠️ **请勿下载上方自动生成的 Source code (zip/tar.gz) 包！**
+            官方二进制包请见下方文件。如需源码请 clone 仓库。
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
