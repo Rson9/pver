@@ -4,10 +4,11 @@
 
 ## ✨ 功能
 
+- 查看 Python 版本信息：`pver info`
 - 快速创建虚拟环境：`pver init`
 - 进入虚拟环境：`pver cd`
+- 退出虚拟环境：`pver exit`
 - 安装依赖：`pver install`
-- 查看 Python 版本信息：`pver info`
 - 删除虚拟环境：`pver remove`
 
 ## 🚀 安装
@@ -16,7 +17,6 @@
 
 ```bash
 make install
-source ~/.zshrc
 ```
 
 方式二（手动）：
@@ -24,7 +24,6 @@ source ~/.zshrc
 ```bash
 go build -o pver
 bash install.sh
-source ~/.zshrc
 ```
 
 方式三（Arch Linux）：
