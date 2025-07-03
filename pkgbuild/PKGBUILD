@@ -1,0 +1,24 @@
+pkgname=pver
+pkgver=0.0.1
+pkgrel=1
+pkgdesc="轻量级 Python 虚拟环境管理 CLI 工具"
+arch=('x86_64')
+url="https://github.com/Rson9/pver"
+license=('MIT')
+depends=('python')
+makedepends=('go')
+source=("https://github.com/Rson9/pver/archive/refs/tags/v${pkgver}.tar.gz")
+sha256sums=('4ab9aac2c4abc9659211d08d56d2f0616dbf821da8e3da982fbdac09b5b10c67')
+
+build() {
+  cd "$srcdir/pver-${pkgver}"
+  go build -o pver -ldflags="-s -w" main.go
+}
+
+package() {
+  cd "$srcdir/pver-${pkgver}"
+
+  install -Dm755 pver "$pkgdir/usr/bin/pver"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/${pkgname}/README.md"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/${pkgname}/LICENSE"
+}
