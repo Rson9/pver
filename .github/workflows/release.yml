@@ -1,9 +1,13 @@
 name: Release
 
 on:
+  # 原有触发条件：推送标签时
   push:
     tags:
       - 'v*.*.*'
+    # 新增触发条件：推送 workflow 文件时
+    paths:
+      - '.github/workflows/release.yml'
 
 jobs:
   build-and-release:
@@ -35,6 +39,11 @@ jobs:
         run: |
           archive_name="pver_${{ matrix.goos }}_${{ matrix.goarch }}_${{ github.ref_name }}"
 
+          # 如果不是标签触发的构建，使用 commit SHA 作为版本标识
+          if [[ "${{ github.ref_type }}" != "tag" ]]; then
+            archive_name="pver_${{ matrix.goos }}_${{ matrix.goarch }}_${{ github.sha }}"
+          fi
+
           if [ "${{ matrix.goos }}" = "windows" ]; then
             zip -r ${archive_name}.zip pver.exe
             echo "archive_file=${archive_name}.zip" >> $GITHUB_OUTPUT
@@ -61,7 +70,11 @@ jobs:
         id: arch-package
         run: |
           # 获取版本号
-          VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+          else
+            VERSION="$(date +%Y%m%d)-${{ github.sha }}"
+          fi
           
           # 创建源码包目录
           mkdir -p pver-$VERSION
@@ -84,11 +97,27 @@ jobs:
           
           echo "archive_file=pver-arch-$VERSION.tar.gz" >> $GITHUB_OUTPUT
           echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create Draft Release (for non-tag builds)
+        id: create-draft-release
+        if: github.ref_type != 'tag'
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: draft-${{ github.sha }}
+          release_name: Draft Release (${{ github.sha }})
+          draft: true
+          prerelease: true
 
       - name: Upload Arch Linux Source Package
         uses: softprops/action-gh-release@v1
         with:
           files: ${{ steps.arch-package.outputs.archive_file }}
+          tag_name: ${{ github.ref_name }}
+          # 如果不是标签触发的构建，使用创建的 draft release
+          release_name: ${{ github.ref_type == 'tag' && github.ref_name || steps.create-draft-release.outputs.html_url }}
           body: |
             # Arch Linux Package
             
