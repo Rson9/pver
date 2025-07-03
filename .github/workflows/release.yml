@@ -39,22 +39,35 @@ jobs:
           tar czvf pver-$VERSION.tar.gz pver-$VERSION
           SHA256=$(sha256sum pver-$VERSION.tar.gz | awk '{print $1}')
           
-          # 更新PKGBUILD中的版本和校验和
-          if [ -f "PKGBUILD" ]; then
-            sed -i "s/pkgver=.*/pkgver=$VERSION/" PKGBUILD
-            sed -i "s/sha256sums=('.*')/sha256sums=('$SHA256')/" PKGBUILD
+          # 查找PKGBUILD文件位置
+          PKGBUILD_PATH=$(find . -name "PKGBUILD" | head -n 1)
+          if [ -z "$PKGBUILD_PATH" ]; then
+            echo "警告: 未找到PKGBUILD文件，跳过更新"
+            echo "pkgbuild_found=false" >> $GITHUB_OUTPUT
+            exit 0
+          else
+            echo "找到PKGBUILD文件: $PKGBUILD_PATH"
+            echo "pkgbuild_found=true" >> $GITHUB_OUTPUT
+            
+            # 更新PKGBUILD中的版本和校验和
+            sed -i "s/pkgver=.*/pkgver=$VERSION/" "$PKGBUILD_PATH"
+            sed -i "s/sha256sums=('.*')/sha256sums=('$SHA256')/" "$PKGBUILD_PATH"
+            
+            # 将PKGBUILD路径保存到输出
+            echo "pkgbuild_path=$PKGBUILD_PATH" >> $GITHUB_OUTPUT
           fi
           
           echo "sha256=$SHA256" >> $GITHUB_OUTPUT
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Commit changes
+        if: steps.source-package.outputs.pkgbuild_found == 'true'
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git add PKGBUILD
-          git commit -m "Update PKGBUILD for ${{ github.event.inputs.version }}"
-          git push
+          git add ${{ steps.source-package.outputs.pkgbuild_path }}
+          git commit -m "Update PKGBUILD for ${{ github.event.inputs.version }}" || echo "没有更改需要提交"
+          git push || echo "没有更改需要推送"
 
       - name: Create and push tag
         run: |
