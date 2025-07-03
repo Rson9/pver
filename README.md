@@ -72,7 +72,8 @@ source ~/.zshrc
 * `Makefile`：一键构建/安装/卸载命令集合
 * `cmd/`：CLI 各子命令源码
 
-⚠️ 当前已知问题
+## ⚠️ 当前已知问题
+
 Shell 命令依赖安装脚本注入：
 pver cd、pver init 等命令依赖 install.sh 将函数注入到 .zshrc / .bashrc 中。如果你直接运行 ./pver 或下载二进制文件而未运行安装脚本，将无法正常使用这些 shell 扩展命令。
 
