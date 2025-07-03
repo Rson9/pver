@@ -8,7 +8,7 @@ license=('MIT')
 depends=('python')
 makedepends=('go')
 source=("https://github.com/Rson9/pver/releases/download/v${pkgver}/pver-v${pkgver}.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('SKIP')  # 用你实际计算的值替换
 
 build() {
   cd "$srcdir/pver-v${pkgver}"
