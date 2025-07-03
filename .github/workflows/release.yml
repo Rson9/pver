@@ -1,16 +1,61 @@
 name: Release
 
 on:
-  # 原有触发条件：推送标签时
-  push:
-    tags:
-      - 'v*.*.*'
-    # 新增触发条件：推送 workflow 文件时
-    paths:
-      - '.github/workflows/release.yml'
+  workflow_dispatch:  # 允许手动触发
+    inputs:
+      version:
+        description: 'New version tag (e.g., v1.0.1)'
+        required: true
+        default: 'v1.0.0'
 
 jobs:
+  prepare-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}  # 需要写入权限的token
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.24'
+
+      - name: Generate source package
+        id: source-package
+        run: |
+          VERSION=$(echo "${{ github.event.inputs.version }}" | sed 's/^v//')
+          mkdir -p pver-$VERSION
+          cp -r ./* pver-$VERSION/
+          tar czvf pver-$VERSION.tar.gz pver-$VERSION
+          SHA256=$(sha256sum pver-$VERSION.tar.gz | awk '{print $1}')
+          
+          # 更新PKGBUILD中的版本和校验和
+          if [ -f "PKGBUILD" ]; then
+            sed -i "s/pkgver=.*/pkgver=$VERSION/" PKGBUILD
+            sed -i "s/sha256sums=('.*')/sha256sums=('$SHA256')/" PKGBUILD
+          fi
+          
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Commit changes
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add PKGBUILD
+          git commit -m "Update PKGBUILD for ${{ github.event.inputs.version }}"
+          git push
+
+      - name: Create and push tag
+        run: |
+          git tag -a ${{ github.event.inputs.version }} -m "Release ${{ github.event.inputs.version }}"
+          git push origin ${{ github.event.inputs.version }}
+
   build-and-release:
+    needs: prepare-release
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -20,6 +65,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.inputs.version }}  # 构建指定标签
 
       - name: Set up Go
         uses: actions/setup-go@v4
@@ -37,13 +84,7 @@ jobs:
       - name: Archive binary
         id: archive
         run: |
-          archive_name="pver_${{ matrix.goos }}_${{ matrix.goarch }}_${{ github.ref_name }}"
-
-          # 如果不是标签触发的构建，使用 commit SHA 作为版本标识
-          if [[ "${{ github.ref_type }}" != "tag" ]]; then
-            archive_name="pver_${{ matrix.goos }}_${{ matrix.goarch }}_${{ github.sha }}"
-          fi
-
+          archive_name="pver_${{ matrix.goos }}_${{ matrix.goarch }}_${{ github.event.inputs.version }}"
           if [ "${{ matrix.goos }}" = "windows" ]; then
             zip -r ${archive_name}.zip pver.exe
             echo "archive_file=${archive_name}.zip" >> $GITHUB_OUTPUT
@@ -52,75 +93,48 @@ jobs:
             echo "archive_file=${archive_name}.tar.gz" >> $GITHUB_OUTPUT
           fi
 
-  # 新增专门为 Arch Linux 生成源码包的作业
   arch-release:
+    needs: prepare-release
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0  # 获取完整的提交历史
+          ref: ${{ github.event.inputs.version }}  # 构建指定标签
 
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
           go-version: '1.24'
 
-      - name: Generate Arch Linux source package
+      - name: Generate Arch package
         id: arch-package
         run: |
-          # 获取版本号
-          if [[ "${{ github.ref_type }}" == "tag" ]]; then
-            VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
-          else
-            VERSION="$(date +%Y%m%d)-${{ github.sha }}"
-          fi
-          
-          # 创建源码包目录
+          VERSION=$(echo "${{ github.event.inputs.version }}" | sed 's/^v//')
           mkdir -p pver-$VERSION
           cp -r ./* pver-$VERSION/
-          
-          # 打包源码
-          tar czvf pver-$VERSION.tar.gz pver-$VERSION
-          
-          # 计算 SHA256 校验和
-          SHA256=$(sha256sum pver-$VERSION.tar.gz | awk '{print $1}')
-          
-          # 更新 PKGBUILD 中的校验和
-          if [ -f "pver-$VERSION/PKGBUILD" ]; then
-            sed -i "s/pkgver=.*/pkgver=$VERSION/" pver-$VERSION/PKGBUILD
-            sed -i "s/sha256sums=('.*')/sha256sums=('$SHA256')/" pver-$VERSION/PKGBUILD
-          fi
-          
-          # 重新打包更新后的源码
           tar czvf pver-arch-$VERSION.tar.gz pver-$VERSION
-          
           echo "archive_file=pver-arch-$VERSION.tar.gz" >> $GITHUB_OUTPUT
-          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Create Draft Release (for non-tag builds)
-        id: create-draft-release
-        if: github.ref_type != 'tag'
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: draft-${{ github.sha }}
-          release_name: Draft Release (${{ github.sha }})
-          draft: true
-          prerelease: true
-
-      - name: Upload Arch Linux Source Package
+      - name: Upload Arch package
         uses: softprops/action-gh-release@v1
         with:
           files: ${{ steps.arch-package.outputs.archive_file }}
-          tag_name: ${{ github.ref_name }}
-          # 如果不是标签触发的构建，使用创建的 draft release
-          release_name: ${{ github.ref_type == 'tag' && github.ref_name || steps.create-draft-release.outputs.html_url }}
-          body: |
-            # Arch Linux Package
-            
-            SHA256: ${{ steps.arch-package.outputs.sha256 }}
-            
-            To install on Arch Linux:
+          tag_name: ${{ github.event.inputs.version }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  upload-release:
+    needs: [build-and-release, arch-release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Upload all artifacts
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            pver_*_*_${{ github.event.inputs.version }}.*
+            pver-arch-*.tar.gz
+          tag_name: ${{ github.event.inputs.version }}
+          name: Release ${{ github.event.inputs.version }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
