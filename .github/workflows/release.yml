@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # 只监听符合语义化版本格式的 tag
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [linux, darwin, windows]
+        goarch: [amd64, arm64]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.24'
+
+      - name: Build binary
+        run: |
+          output_name=pver
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            output_name=pver.exe
+          fi
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o $output_name main.go
+
+      - name: Archive binary
+        run: |
+          archive_name="pver_${{ matrix.goos }}_${{ matrix.goarch }}_${{ github.ref_name }}"
+
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            zip -r ${archive_name}.zip pver.exe
+            echo "::set-output name=archive_file::${archive_name}.zip"
+          else
+            tar czvf ${archive_name}.tar.gz pver
+            echo "::set-output name=archive_file::${archive_name}.tar.gz"
+          fi
+        id: archive
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ${{ steps.archive.outputs.archive_file }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
