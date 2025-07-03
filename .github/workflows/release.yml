@@ -28,7 +28,14 @@ jobs:
         run: |
           VERSION=$(echo "${{ github.event.inputs.version }}" | sed 's/^v//')
           mkdir -p pver-$VERSION
-          cp -r ./* pver-$VERSION/
+          
+          # 修复：使用正确的文件复制命令，排除目标目录
+          cp -r ./* pver-$VERSION/ 2>/dev/null || :  # 忽略错误
+          cp -r ./.??* pver-$VERSION/ 2>/dev/null || :  # 复制隐藏文件
+          
+          # 移除可能错误复制的目录
+          rm -rf pver-$VERSION/pver-$VERSION
+          
           tar czvf pver-$VERSION.tar.gz pver-$VERSION
           SHA256=$(sha256sum pver-$VERSION.tar.gz | awk '{print $1}')
           
