@@ -11,7 +11,7 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # 授予创建和推送标签的权限
+      contents: write
     outputs:
       version: ${{ steps.setvars.outputs.version }}
       short_version: ${{ steps.setvars.outputs.short_version }}
@@ -21,6 +21,11 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git user
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
 
       - name: Set version variables
         id: setvars
@@ -38,62 +43,9 @@ jobs:
           if git tag -l | grep -q "$TAG"; then
             echo "Tag $TAG already exists. Deleting local tag..."
             git tag -d "$TAG"
-            
-            # 尝试删除远程标签
-            git push origin --delete "$TAG" || echo "Remote tag deletion failed, but continuing..."
+            git push origin --delete "$TAG" || echo "Remote tag deletion failed, continuing..."
           fi
           
           # 创建并推送新标签
           git tag -a "$TAG" -m "Release $TAG"
           git push origin "$TAG"
-
-  build-and-release:
-    needs: prepare
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write  # 授予发布资产的权限
-    strategy:
-      matrix:
-        goos: [linux, darwin, windows]
-        goarch: [amd64, arm64]
-
-    steps:
-      - name: Checkout tagged release
-        uses: actions/checkout@v3
-        with:
-          ref: ${{ needs.prepare.outputs.version }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: '1.24'
-
-      - name: Build
-        run: |
-          output_name=pver
-          [ "${{ matrix.goos }}" = "windows" ] && output_name=pver.exe
-          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o $output_name main.go
-
-      - name: Archive binary
-        id: archive
-        run: |
-          archive="pver_${{ matrix.goos }}_${{ matrix.goarch }}_${{ needs.prepare.outputs.version }}"
-          if [ "${{ matrix.goos }}" = "windows" ]; then
-            zip -r ${archive}.zip pver.exe
-            echo "archive_file=${archive}.zip" >> $GITHUB_OUTPUT
-          else
-            tar czf ${archive}.tar.gz pver
-            echo "archive_file=${archive}.tar.gz" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Upload binary
-        uses: softprops/action-gh-release@v1
-        with:
-          files: ${{ steps.archive.outputs.archive_file }}
-          tag_name: ${{ needs.prepare.outputs.version }}
-          body: |
-            ⚠️ **请勿下载上方自动生成的 Source code (zip/tar.gz) 包！**
-            官方二进制包请见下方文件。如需源码请 clone 仓库。
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
