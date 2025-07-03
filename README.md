@@ -72,3 +72,15 @@ source ~/.zshrc
 * `Makefile`：一键构建/安装/卸载命令集合
 * `cmd/`：CLI 各子命令源码
 
+⚠️ 当前已知问题
+Shell 命令依赖安装脚本注入：
+pver cd、pver init 等命令依赖 install.sh 将函数注入到 .zshrc / .bashrc 中。如果你直接运行 ./pver 或下载二进制文件而未运行安装脚本，将无法正常使用这些 shell 扩展命令。
+
+二进制包未内置集成脚本自动注入：
+目前通过 GitHub Releases 提供的二进制包（pver_linux_amd64_x.y.z.tar.gz 等）不包含自动注入 shell 的逻辑，需用户手动运行 install.sh。
+
+仅支持类 Unix 系统测试：
+虽然可交叉编译为 Windows 和 macOS，但目前仅在 Linux 和 macOS 上进行了功能验证，Windows 下的 shell 集成尚未支持。
+
+Python 版本选择逻辑尚未完善：
+当前默认使用 python3，如有多个 Python 版本（如 pyenv 管理环境），建议先通过外部工具统一 Python 环境。
