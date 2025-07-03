@@ -1,72 +1,70 @@
 name: Release
 
 on:
-  workflow_dispatch:  # 允许手动触发
+  workflow_dispatch:
     inputs:
       version:
-        description: 'New version tag (e.g., v1.0.1)'
+        description: 'Release version (e.g., v0.0.2)'
         required: true
-        default: 'v1.0.0'
 
 jobs:
-  prepare-release:
+  prepare:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.setvars.outputs.version }}
+      short_version: ${{ steps.setvars.outputs.short_version }}
+      sha256: ${{ steps.sha.outputs.sha256 }}
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: '1.24'
-
-      - name: Generate source package
-        id: source-package
+      - name: Set version variables
+        id: setvars
         run: |
-          VERSION=$(echo "${{ github.event.inputs.version }}" | sed 's/^v//')
-          mkdir -p pver-$VERSION
+          VERSION="${{ github.event.inputs.version }}"
+          SHORT_VER="${VERSION#v}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "short_version=${SHORT_VER}" >> $GITHUB_OUTPUT
 
-          # 正确复制项目文件，避免循环复制
-          find . -mindepth 1 -maxdepth 1 \
-            \( -name "pver-$VERSION" -o -name ".git" -o -name ".github" \) -prune -o \
-            -exec cp -r '{}' pver-$VERSION/ \;
+      - name: Package source and compute SHA256
+        id: sha
+        run: |
+          SHORT_VER="${{ steps.setvars.outputs.short_version }}"
 
-          tar czvf pver-$VERSION.tar.gz pver-$VERSION
-          SHA256=$(sha256sum pver-$VERSION.tar.gz | awk '{print $1}')
+          mkdir -p pver-${SHORT_VER}
+          rsync -a --exclude "pver-${SHORT_VER}" ./ pver-${SHORT_VER}/
+          tar czf pver-${SHORT_VER}.tar.gz pver-${SHORT_VER}
 
-          PKGBUILD_PATH=$(find . -name "PKGBUILD" | head -n 1)
-          if [ -z "$PKGBUILD_PATH" ]; then
-            echo "pkgbuild_found=false" >> $GITHUB_OUTPUT
-            exit 0
-          else
-            echo "pkgbuild_found=true" >> $GITHUB_OUTPUT
-            sed -i "s/pkgver=.*/pkgver=$VERSION/" "$PKGBUILD_PATH"
-            sed -i "s/sha256sums=('.*')/sha256sums=('$SHA256')/" "$PKGBUILD_PATH"
-            echo "pkgbuild_path=$PKGBUILD_PATH" >> $GITHUB_OUTPUT
-          fi
+          SHA=$(sha256sum pver-${SHORT_VER}.tar.gz | awk '{print $1}')
+          echo "sha256=$SHA" >> $GITHUB_OUTPUT
 
-          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "✅ Source tarball created: pver-${SHORT_VER}.tar.gz"
+          echo "✅ SHA256: $SHA"
+
+      - name: Update PKGBUILD
+        run: |
+          SHORT_VER="${{ steps.setvars.outputs.short_version }}"
+          SHA256="${{ steps.sha.outputs.sha256 }}"
+          sed -i "s/^pkgver=.*/pkgver=${SHORT_VER}/" pkgbuild/PKGBUILD
+          sed -i "s/^sha256sums=(.*/sha256sums=('${SHA256}')/" pkgbuild/PKGBUILD
 
       - name: Commit updated PKGBUILD
-        if: steps.source-package.outputs.pkgbuild_found == 'true'
         run: |
-          git config user.name "GitHub Actions"
+          git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git add ${{ steps.source-package.outputs.pkgbuild_path }}
-          git commit -m "Update PKGBUILD for ${{ github.event.inputs.version }}" || echo "No changes"
-          git push || echo "Nothing to push"
+          git add pkgbuild/PKGBUILD
+          git commit -m "Update PKGBUILD for release ${{ steps.setvars.outputs.version }}" || echo "No changes"
+          git push
 
-      - name: Create Git Tag
+      - name: Tag version
         run: |
-          git tag -a ${{ github.event.inputs.version }} -m "Release ${{ github.event.inputs.version }}"
-          git push origin ${{ github.event.inputs.version }}
+          git tag -a ${{ steps.setvars.outputs.version }} -m "Release ${{ steps.setvars.outputs.version }}"
+          git push origin ${{ steps.setvars.outputs.version }}
 
   build-and-release:
-    needs: prepare-release
+    needs: prepare
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -74,17 +72,17 @@ jobs:
         goarch: [amd64, arm64]
 
     steps:
-      - name: Checkout code
+      - name: Checkout tagged release
         uses: actions/checkout@v3
         with:
-          ref: ${{ github.event.inputs.version }}
+          ref: ${{ needs.prepare.outputs.version }}
 
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
           go-version: '1.24'
 
-      - name: Build binary
+      - name: Build
         run: |
           output_name=pver
           [ "${{ matrix.goos }}" = "windows" ] && output_name=pver.exe
@@ -93,60 +91,31 @@ jobs:
       - name: Archive binary
         id: archive
         run: |
-          archive_name="pver_${{ matrix.goos }}_${{ matrix.goarch }}_${{ github.event.inputs.version }}"
+          archive="pver_${{ matrix.goos }}_${{ matrix.goarch }}_${{ needs.prepare.outputs.version }}"
           if [ "${{ matrix.goos }}" = "windows" ]; then
-            zip -r ${archive_name}.zip pver.exe
-            echo "archive_file=${archive_name}.zip" >> $GITHUB_OUTPUT
+            zip -r ${archive}.zip pver.exe
+            echo "archive_file=${archive}.zip" >> $GITHUB_OUTPUT
           else
-            tar czvf ${archive_name}.tar.gz pver
-            echo "archive_file=${archive_name}.tar.gz" >> $GITHUB_OUTPUT
+            tar czf ${archive}.tar.gz pver
+            echo "archive_file=${archive}.tar.gz" >> $GITHUB_OUTPUT
           fi
 
-  arch-release:
-    needs: prepare-release
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-        with:
-          ref: ${{ github.event.inputs.version }}
-
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: '1.24'
-
-      - name: Generate Arch source package
-        id: arch-package
-        run: |
-          VERSION=$(echo "${{ github.event.inputs.version }}" | sed 's/^v//')
-          mkdir -p pver-$VERSION
-          find . -mindepth 1 -maxdepth 1 \
-            \( -name "pver-$VERSION" -o -name ".git" -o -name ".github" \) -prune -o \
-            -exec cp -r '{}' pver-$VERSION/ \;
-
-          tar czvf pver-arch-$VERSION.tar.gz pver-$VERSION
-          echo "archive_file=pver-arch-$VERSION.tar.gz" >> $GITHUB_OUTPUT
-
-      - name: Upload Arch source tarball
+      - name: Upload binary
         uses: softprops/action-gh-release@v1
         with:
-          files: ${{ steps.arch-package.outputs.archive_file }}
-          tag_name: ${{ github.event.inputs.version }}
+          files: ${{ steps.archive.outputs.archive_file }}
+          tag_name: ${{ needs.prepare.outputs.version }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  upload-release:
-    needs: [build-and-release, arch-release]
+  upload-source:
+    needs: prepare
     runs-on: ubuntu-latest
     steps:
-      - name: Upload all release assets
+      - name: Upload source tarball
         uses: softprops/action-gh-release@v1
         with:
-          files: |
-            pver_*_*_${{ github.event.inputs.version }}.*
-            pver-arch-*.tar.gz
-          tag_name: ${{ github.event.inputs.version }}
-          name: Release ${{ github.event.inputs.version }}
+          files: pver-${{ needs.prepare.outputs.short_version }}.tar.gz
+          tag_name: ${{ needs.prepare.outputs.version }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
