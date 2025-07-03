@@ -8,7 +8,7 @@ license=('MIT')
 depends=('python')
 makedepends=('go')
 source=("https://github.com/Rson9/pver/releases/download/v${pkgver}/pver-v${pkgver}.tar.gz")
-sha256sums=('16e0d5a06ab0ad9b7ce712894f6463c252cf0fd32be8389eb76377c602eb2215')
+sha256sums=('c66baae6c914615a3edacd4010c27101f46e80e489c035f4bf41821b24c9cefb')
 
 build() {
   cd "$srcdir/pver-v${pkgver}"
