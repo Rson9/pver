@@ -43,9 +43,55 @@ jobs:
             echo "archive_file=${archive_name}.tar.gz" >> $GITHUB_OUTPUT
           fi
 
-      - name: Upload Release Asset
+  # 新增专门为 Arch Linux 生成源码包的作业
+  arch-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # 获取完整的提交历史
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.24'
+
+      - name: Generate Arch Linux source package
+        id: arch-package
+        run: |
+          # 获取版本号
+          VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+          
+          # 创建源码包目录
+          mkdir -p pver-$VERSION
+          cp -r ./* pver-$VERSION/
+          
+          # 打包源码
+          tar czvf pver-$VERSION.tar.gz pver-$VERSION
+          
+          # 计算 SHA256 校验和
+          SHA256=$(sha256sum pver-$VERSION.tar.gz | awk '{print $1}')
+          
+          # 更新 PKGBUILD 中的校验和
+          if [ -f "pver-$VERSION/PKGBUILD" ]; then
+            sed -i "s/pkgver=.*/pkgver=$VERSION/" pver-$VERSION/PKGBUILD
+            sed -i "s/sha256sums=('.*')/sha256sums=('$SHA256')/" pver-$VERSION/PKGBUILD
+          fi
+          
+          # 重新打包更新后的源码
+          tar czvf pver-arch-$VERSION.tar.gz pver-$VERSION
+          
+          echo "archive_file=pver-arch-$VERSION.tar.gz" >> $GITHUB_OUTPUT
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+
+      - name: Upload Arch Linux Source Package
         uses: softprops/action-gh-release@v1
         with:
-          files: ${{ steps.archive.outputs.archive_file }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          files: ${{ steps.arch-package.outputs.archive_file }}
+          body: |
+            # Arch Linux Package
+            
+            SHA256: ${{ steps.arch-package.outputs.sha256 }}
+            
+            To install on Arch Linux:
