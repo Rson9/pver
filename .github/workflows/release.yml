@@ -18,6 +18,7 @@ jobs:
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}  # 确保有推送权限
 
       - name: Set version variables
         id: setvars
@@ -29,8 +30,20 @@ jobs:
 
       - name: Tag version
         run: |
-          git tag -a ${{ steps.setvars.outputs.version }} -m "Release ${{ steps.setvars.outputs.version }}"
-          git push origin ${{ steps.setvars.outputs.version }}
+          TAG="${{ steps.setvars.outputs.version }}"
+          
+          # 检查标签是否已存在
+          if git tag -l | grep -q "$TAG"; then
+            echo "Tag $TAG already exists. Deleting local tag..."
+            git tag -d "$TAG"
+            
+            # 尝试删除远程标签（如果存在）
+            git push origin --delete "$TAG" || true
+          fi
+          
+          # 创建并推送新标签
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
 
   build-and-release:
     needs: prepare
@@ -45,6 +58,7 @@ jobs:
         uses: actions/checkout@v3
         with:
           ref: ${{ needs.prepare.outputs.version }}
+          token: ${{ secrets.GITHUB_TOKEN }}  # 确保有读取权限
 
       - name: Set up Go
         uses: actions/setup-go@v4
