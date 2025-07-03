@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*.*.*'  # 只监听符合语义化版本格式的 tag
+      - 'v*.*.*'
 
 jobs:
   build-and-release:
@@ -31,17 +31,17 @@ jobs:
           GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o $output_name main.go
 
       - name: Archive binary
+        id: archive
         run: |
           archive_name="pver_${{ matrix.goos }}_${{ matrix.goarch }}_${{ github.ref_name }}"
 
           if [ "${{ matrix.goos }}" = "windows" ]; then
             zip -r ${archive_name}.zip pver.exe
-            echo "::set-output name=archive_file::${archive_name}.zip"
+            echo "archive_file=${archive_name}.zip" >> $GITHUB_OUTPUT
           else
             tar czvf ${archive_name}.tar.gz pver
-            echo "::set-output name=archive_file::${archive_name}.tar.gz"
+            echo "archive_file=${archive_name}.tar.gz" >> $GITHUB_OUTPUT
           fi
-        id: archive
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v1

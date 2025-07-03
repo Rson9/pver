@@ -7,17 +7,16 @@ url="https://github.com/Rson9/pver"
 license=('MIT')
 depends=('python')
 makedepends=('go')
-source=("https://github.com/Rson9/pver/archive/refs/tags/v${pkgver}.tar.gz")
-sha256sums=('3ed22b6f3f322806c99182de2e625bcb15058e5f7379df3f479afe56ed534be9')
+source=("https://github.com/Rson9/pver/releases/download/v${pkgver}/pver-v${pkgver}.tar.gz")
+sha256sums=('1e432fbae9ef237c608dd815a186e8e0dbb216985a97ae44f69f1673a7157145')
 
 build() {
-  cd "$srcdir/pver-${pkgver}"
+  cd "$srcdir/pver-v${pkgver}"
   go build -o pver -ldflags="-s -w" main.go
 }
 
 package() {
-  cd "$srcdir/pver-${pkgver}"
-
+  cd "$srcdir/pver-v${pkgver}"
   install -Dm755 pver "$pkgdir/usr/bin/pver"
   install -Dm644 README.md "$pkgdir/usr/share/doc/${pkgname}/README.md"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/${pkgname}/LICENSE"
